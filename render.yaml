@@ -1,0 +1,6 @@
+services:
+  - type: worker
+    name: flight-bot
+    env: python
+    plan: free
+    startCommand: "python 1_telegram_flight_alerts_bot_travelpayouts_aiogram_v_3_aiosqlite_httpx.py"

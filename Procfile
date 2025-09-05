@@ -1,0 +1,1 @@
+worker: python 1_telegram_flight_alerts_bot_travelpayouts_aiogram_v_3_aiosqlite_httpx.py
