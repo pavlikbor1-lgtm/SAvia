@@ -6,6 +6,6 @@ services:
     plan: free
     buildCommand: |
       pip install --upgrade pip setuptools wheel
-      pip install --only-binary=:all: -r requirements.txt
+      pip install --only-binary=:all: --no-cache-dir -r requirements.txt
     startCommand: "python 1_telegram_flight_alerts_bot_travelpayouts_aiogram_v_3_aiosqlite_httpx.py"
 
