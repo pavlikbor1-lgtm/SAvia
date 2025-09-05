@@ -1,6 +1,6 @@
 services:
   - type: worker
-    name: flight-bot
+    name: SAvia
     env: python
     pythonVersion: 3.11.9
     plan: free
@@ -8,3 +8,4 @@ services:
       pip install --upgrade pip setuptools wheel
       pip install --only-binary=:all: -r requirements.txt
     startCommand: "python 1_telegram_flight_alerts_bot_travelpayouts_aiogram_v_3_aiosqlite_httpx.py"
+
