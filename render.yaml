@@ -5,7 +5,8 @@ services:
     pythonVersion: 3.11.9
     plan: free
     buildCommand: |
+      export PIP_ONLY_BINARY=":all:" PIP_PREFER_BINARY=1
       pip install --upgrade pip setuptools wheel
-      pip install --only-binary=:all: --no-cache-dir -r requirements.txt
+      pip install --no-cache-dir -r requirements.txt
     startCommand: "python 1_telegram_flight_alerts_bot_travelpayouts_aiogram_v_3_aiosqlite_httpx.py"
 
