@@ -8,5 +8,4 @@ services:
       export PIP_ONLY_BINARY=":all:" PIP_PREFER_BINARY=1
       pip install --upgrade pip setuptools wheel
       pip install --no-cache-dir -r requirements.txt
-    startCommand: "python 1_telegram_flight_alerts_bot_travelpayouts_aiogram_v_3_aiosqlite_httpx.py"
-
+    startCommand: "python bot.py"
