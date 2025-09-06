@@ -17,12 +17,16 @@ from aiogram.types import Message
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 
+# Добавляем aiohttp для веб-сервера
+from aiohttp import web
+
 # ================== CONFIG ==================
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TRAVELPAYOUTS_TOKEN = os.getenv("TRAVELPAYOUTS_TOKEN")
 TP_CURRENCY = os.getenv("TP_CURRENCY", "rub")
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "900"))  # 15 мин
 RATE_LIMIT_MS = int(os.getenv("RATE_LIMIT_MS", "400"))
+PORT = int(os.getenv("PORT", "10000"))  # Render.com использует переменную PORT
 
 bot = Bot(
     token=TELEGRAM_BOT_TOKEN,
@@ -237,6 +241,25 @@ async def cancel_cmd(message: Message):
     except Exception as e:
         await message.answer(f"Ошибка: {e}")
 
+# ================== WEB SERVER ==================
+async def health_check(request):
+    return web.Response(text="Telegram Bot is running! 🤖", status=200)
+
+async def status_check(request):
+    alerts_count = len(await get_alerts())
+    return web.json_response({
+        "status": "ok",
+        "alerts_count": alerts_count,
+        "bot_username": (await bot.get_me()).username
+    })
+
+async def create_app():
+    app = web.Application()
+    app.router.add_get('/', health_check)
+    app.router.add_get('/health', health_check)
+    app.router.add_get('/status', status_check)
+    return app
+
 # ================== BACKGROUND TASK ==================
 async def monitor_alerts():
     while True:
@@ -263,8 +286,21 @@ async def monitor_alerts():
 # ================== MAIN ==================
 async def main():
     await init_db()
+    
+    # Запускаем мониторинг alerts в фоне
     asyncio.create_task(monitor_alerts())
-    await dp.start_polling(bot)
+    
+    # Создаем и запускаем веб-сервер
+    app = await create_app()
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', PORT)
+    
+    # Запускаем сервер и бота одновременно
+    await asyncio.gather(
+        site.start(),
+        dp.start_polling(bot)
+    )
 
 if __name__ == "__main__":
     asyncio.run(main())
