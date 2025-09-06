@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: background-worker
     name: SAvia
     env: python
     pythonVersion: 3.11.9
