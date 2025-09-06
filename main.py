@@ -107,7 +107,7 @@ async def search_range(origin, destination, start_date, end_date, adults=1):
     logger.info(f"Found {len(results)} total flights in range")
     return results
 
-def validate_date(date_str: str) -> datetime.date | None:
+def validate_date(date_str: str) -> Optional[datetime.date]:
     """Проверка формата даты и что дата не в прошлом"""
     try:
         d = datetime.strptime(date_str, "%Y-%m-%d").date()
@@ -117,7 +117,7 @@ def validate_date(date_str: str) -> datetime.date | None:
     except Exception:
         return None
 
-def validate_airport_code(code: str) -> str | None:
+def validate_airport_code(code: str) -> Optional[str]:
     """Валидация кода аэропорта"""
     if not code or len(code.strip()) != 3:
         return None
