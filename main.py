@@ -2,7 +2,11 @@
 @dp.message(Command("search"))
 async def search_cmd(message: Message, state: FSMContext):
     await message.answer(
-        "🔍 <b>Поиск билетов</b>\# -------------------------
+        "🔍 <b>Поиск билетов</b>\n\n"
+        "Выберите аэропорт отправления:",
+        reply_markup=get_airports_keyboard(for_destination=False)
+    )
+    await state.set_state(SearchFlight.origin)# -------------------------
 # Configuration & constants
 # -------------------------
 
