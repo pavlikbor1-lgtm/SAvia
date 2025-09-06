@@ -579,7 +579,7 @@ async def handle_calendar_done(callback: CallbackQueryType, state: FSMContext):
                 continue
         elif isinstance(d, datetime):
             normalized_dates.append(d.date())
-        else:
+        elif isinstance(d, date):
             normalized_dates.append(d)
     
     if not normalized_dates or len(normalized_dates) < 2:
