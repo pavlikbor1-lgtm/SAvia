@@ -11,7 +11,6 @@ from dateutil.parser import isoparse
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.client.default import DefaultBotProperties
-
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from aiogram.types import Message
@@ -20,7 +19,6 @@ from aiogram.fsm.context import FSMContext
 
 # Добавляем aiohttp для веб-сервера
 from aiohttp import web
-import aiohttp
 
 # ================== CONFIG ==================
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -31,30 +29,16 @@ RATE_LIMIT_MS = int(os.getenv("RATE_LIMIT_MS", "400"))
 PORT = int(os.getenv("PORT", "10000"))  # Render.com использует переменную PORT
 
 # URL вашего приложения на Render (автоматически определяется или задается вручную)
-RENDER_APP_URL = "https://savia-w3zz.onrender.com"
+RENDER_APP_URL = os.getenv("RENDER_APP_URL", "https://savia-w3zz.onrender.com")
 KEEP_ALIVE_INTERVAL = 600  # 10 минут
 
 # Настройки таймаутов для более стабильной работы
 TELEGRAM_TIMEOUT = 30  # секунд
 HTTP_TIMEOUT = 20  # секунд
 
-# Создаем сессию с увеличенными таймаутами
-session = AiohttpSession(
-    connector=aiohttp.TCPConnector(
-        limit=100,
-        limit_per_host=30,
-        ttl_dns_cache=300,
-        use_dns_cache=True,
-        keepalive_timeout=30,
-        enable_cleanup_closed=True
-    ),
-    timeout=aiohttp.ClientTimeout(total=TELEGRAM_TIMEOUT)
-)
-
 bot = Bot(
     token=TELEGRAM_BOT_TOKEN,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-    session=session
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
 )
 dp = Dispatcher()
 
