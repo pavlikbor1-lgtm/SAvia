@@ -31,7 +31,7 @@ RATE_LIMIT_MS = int(os.getenv("RATE_LIMIT_MS", "400"))
 PORT = int(os.getenv("PORT", "10000"))  # Render.com использует переменную PORT
 
 # URL вашего приложения на Render (автоматически определяется или задается вручную)
-RENDER_APP_URL = os.getenv("RENDER_APP_URL", "https://savia-w3zz.onrender.com")
+RENDER_APP_URL = "https://savia-w3zz.onrender.com"
 KEEP_ALIVE_INTERVAL = 600  # 10 минут
 
 # Настройки таймаутов для более стабильной работы
