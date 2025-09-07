@@ -14,7 +14,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery as CallbackQueryType
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery as CallbackQueryType, BotCommand, BotCommandScopeDefault
 from aiogram import F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery as CallbackQueryType
 from aiogram.fsm.state import State, StatesGroup
@@ -45,6 +45,25 @@ bot = Bot(
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
 )
 dp = Dispatcher()
+
+# ================== BOT COMMANDS SETUP ==================
+async def set_bot_commands():
+    """Устанавливает команды бота (меню в нижней части)"""
+    commands = [
+        BotCommand(command="start", description="🏠 Главное меню"),
+        BotCommand(command="search", description="🔍 Поиск билетов"),
+        BotCommand(command="alert", description="🔔 Создать оповещение"),
+        BotCommand(command="alerts", description="📋 Мои оповещения"),
+        BotCommand(command="cancel", description="❌ Удалить оповещение"),
+        BotCommand(command="help", description="ℹ️ Справка"),
+        BotCommand(command="status", description="📊 Статус бота"),
+    ]
+    
+    try:
+        await bot.set_my_commands(commands, scope=BotCommandScopeDefault())
+        logger.info("Bot commands menu set successfully")
+    except Exception as e:
+        logger.error(f"Failed to set bot commands: {e}")
 
 # ================== HELPERS ==================
 async def fetch_flights(origin, destination, date, adults=1):
@@ -305,24 +324,21 @@ async def start_cmd(message: Message):
         "🔍 Искать дешевые билеты\n"
         "🔔 Создавать оповещения о низких ценах\n"
         "📊 Отслеживать изменения цен\n\n"
-        "Выберите действие:",
+        "Выберите действие или воспользуйтесь меню команд:",
         reply_markup=get_main_menu()
     )
 
-# ================== CALLBACK HANDLERS ==================
-@dp.callback_query(F.data == "main_menu")
-async def show_main_menu(callback: CallbackQueryType):
-    await callback.message.edit_text(
-        "✈️ <b>Главное меню</b>\n\n"
-        "Выберите действие:",
-        reply_markup=get_main_menu()
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "help")
-async def show_help(callback: CallbackQueryType):
+@dp.message(Command("help"))
+async def help_cmd(message: Message):
     help_text = (
         "📖 <b>Справка по использованию бота</b>\n\n"
+        "<b>🎯 Основные команды:</b>\n"
+        "• /start - главное меню\n"
+        "• /search - поиск билетов\n"
+        "• /alert - создать оповещение\n"
+        "• /alerts - список оповещений\n"
+        "• /cancel ID - удалить оповещение\n"
+        "• /status - статус бота\n\n"
         "🔍 <b>Поиск билетов:</b>\n"
         "Выберите аэропорты вылета и назначения, укажите даты поиска. "
         "Бот найдет 5 самых дешевых вариантов.\n\n"
@@ -336,7 +352,48 @@ async def show_help(callback: CallbackQueryType):
         "• MRV - Минеральные Воды\n"
         "• KZN - Казань\n"
         "• CSY - Чебоксары\n\n"
-        "Или вводите любой другой IATA код аэропорта."
+        "Или вводите любой другой IATA код аэропорта.\n\n"
+        "<b>📋 Меню команд всегда доступно в нижней части экрана!</b>"
+    )
+    
+    await message.answer(help_text, reply_markup=get_main_menu())
+
+# ================== CALLBACK HANDLERS ==================
+@dp.callback_query(F.data == "main_menu")
+async def show_main_menu(callback: CallbackQueryType):
+    await callback.message.edit_text(
+        "✈️ <b>Главное меню</b>\n\n"
+        "Выберите действие или воспользуйтесь меню команд в нижней части экрана:",
+        reply_markup=get_main_menu()
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "help")
+async def show_help(callback: CallbackQueryType):
+    help_text = (
+        "📖 <b>Справка по использованию бота</b>\n\n"
+        "<b>🎯 Основные команды:</b>\n"
+        "• /start - главное меню\n"
+        "• /search - поиск билетов\n"
+        "• /alert - создать оповещение\n"
+        "• /alerts - список оповещений\n"
+        "• /cancel ID - удалить оповещение\n"
+        "• /status - статус бота\n\n"
+        "🔍 <b>Поиск билетов:</b>\n"
+        "Выберите аэропорты вылета и назначения, укажите даты поиска. "
+        "Бот найдет 5 самых дешевых вариантов.\n\n"
+        "🔔 <b>Оповещения:</b>\n"
+        "Создайте оповещение с указанием маршрута, дат и максимальной цены. "
+        "Бот будет уведомлять вас, когда найдет подходящие билеты.\n\n"
+        "✈️ <b>Коды аэропортов:</b>\n"
+        "• MOW - Москва\n"
+        "• LED - Санкт-Петербург\n"
+        "• AER - Сочи\n"
+        "• MRV - Минеральные Воды\n"
+        "• KZN - Казань\n"
+        "• CSY - Чебоксары\n\n"
+        "Или вводите любой другой IATA код аэропорта.\n\n"
+        "<b>📋 Меню команд всегда доступно в нижней части экрана!</b>"
     )
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -701,14 +758,40 @@ async def alert_cmd(message: Message):
 async def alerts_cmd(message: Message):
     alerts = await get_alerts()
     user_alerts = [a for a in alerts if a[1] == message.from_user.id]
+    
     if not user_alerts:
-        await message.answer("У вас нет активных оповещений")
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Создать оповещение", callback_data="create_alert")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
+        
+        await message.answer(
+            "📋 <b>Ваши оповещения</b>\n\n"
+            "У вас пока нет активных оповещений.\n"
+            "Создайте первое оповещение, чтобы отслеживать цены на билеты!",
+            reply_markup=keyboard
+        )
         return
-    text = "Ваши оповещения:\n"
-    for a in user_alerts:
-        id_, user_id, origin, destination, start_date, end_date, adults, threshold = a
-        text += f"ID {id_}: {origin} → {destination}, {start_date}–{end_date}, {adults} adults, до {threshold}₽\n"
-    await message.answer(text)
+    
+    text = "📋 <b>Ваши активные оповещения:</b>\n\n"
+    for i, alert in enumerate(user_alerts, 1):
+        id_, user_id, origin, destination, start_date, end_date, adults, threshold = alert
+        text += (
+            f"<b>{i}. {origin} → {destination}</b>\n"
+            f"📅 {start_date} — {end_date}\n"
+            f"👥 {adults} adults\n"
+            f"💰 до {threshold} ₽\n"
+            f"🆔 ID: {id_}\n\n"
+        )
+    
+    text += "\nДля удаления оповещения используйте:\n<code>/cancel ID</code>"
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Создать еще", callback_data="create_alert")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+    ])
+    
+    await message.answer(text, reply_markup=keyboard)
 
 @dp.message(Command("cancel"))
 async def cancel_cmd(message: Message):
@@ -722,7 +805,7 @@ async def cancel_cmd(message: Message):
         success = await delete_alert(alert_id, message.from_user.id)
         
         if success:
-            await message.answer("✅ Оповещение удалено")
+            await message.answer("✅ Оповещение удалено", reply_markup=get_main_menu())
         else:
             await message.answer("❌ Оповещение не найдено или уже удалено")
     except ValueError:
@@ -741,7 +824,9 @@ async def status_cmd(message: Message):
         f"⏰ Время: {uptime}\n"
         f"📊 Активных оповещений: {alerts_count}\n"
         f"🔄 Интервал проверки: {POLL_INTERVAL_SECONDS//60} мин\n"
-        f"✅ Бот работает нормально!"
+        f"✅ Бот работает нормально!\n\n"
+        f"💡 Используйте меню команд в нижней части экрана для быстрого доступа!",
+        reply_markup=get_main_menu()
     )
 
 # ---------- ПРОСТОЙ ПОШАГОВЫЙ ПОИСК (через сообщения) ----------
@@ -845,6 +930,10 @@ async def main():
     try:
         await init_db()
         logger.info("Database initialized")
+        
+        # Устанавливаем команды бота (меню в нижней части)
+        await set_bot_commands()
+        logger.info("Bot commands menu set")
         
         # Запускаем фоновые задачи
         asyncio.create_task(monitor_alerts())
