@@ -1,4 +1,3 @@
-
 # main.py
 # -------------------------
 # Configuration & constants
@@ -473,7 +472,7 @@ async def handle_destination_selection(callback: CallbackQueryType, state: FSMCo
     now = datetime.now()
     await callback.message.edit_text(
         f"✅ Маршрут: <b>{origin} → {airport_code}</b>\n\n"
-        "📅 Выберите диапазон поиска дат:",
+        "📅 Выберите диапазон дат вылета:",
         reply_markup=get_calendar_keyboard(now.year, now.month, [])
     )
     await state.set_state(SearchFlight.date1)
@@ -597,7 +596,7 @@ async def handle_calendar_done(callback: CallbackQueryType, state: FSMContext):
     flights = sorted(flights, key=lambda x: x.get("price", 999999))[:5]
     
     results_text = f"✅ <b>Топ {len(flights)} найденных билетов:</b>\n\n"
-    for i, f in enumerate(flights, 1):
+    for i, f in enumerate(limited_flights, 1):
         results_text += (
             f"<b>{i}. {f.get('origin')} → {f.get('destination')}</b>\n"
             f"📅 {f.get('departure_at')}\n"
