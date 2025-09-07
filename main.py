@@ -28,6 +28,10 @@ POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "900"))  # 15 м�
 RATE_LIMIT_MS = int(os.getenv("RATE_LIMIT_MS", "400"))
 PORT = int(os.getenv("PORT", "10000"))  # Render.com использует переменную PORT
 
+# URL вашего приложения на Render (замените на ваш реальный URL)
+RENDER_APP_URL = os.getenv("RENDER_APP_URL", "https://your-app-name.onrender.com")
+KEEP_ALIVE_INTERVAL = 600  # 10 минут
+
 bot = Bot(
     token=TELEGRAM_BOT_TOKEN,
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
@@ -72,6 +76,19 @@ def validate_date(date_str: str) -> datetime | None:
         return d
     except ValueError:
         return None
+
+# ================== KEEP ALIVE ==================
+async def keep_alive():
+    """Периодически пингует само приложение, чтобы оно не засыпало"""
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                await client.get(f"{RENDER_APP_URL}/health")
+                print(f"[{datetime.now()}] Keep-alive ping sent")
+        except Exception as e:
+            print(f"[{datetime.now()}] Keep-alive ping failed: {e}")
+        
+        await asyncio.sleep(KEEP_ALIVE_INTERVAL)
 
 # ================== DB ==================
 async def init_db():
@@ -247,10 +264,13 @@ async def health_check(request):
 
 async def status_check(request):
     alerts_count = len(await get_alerts())
+    uptime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return web.json_response({
         "status": "ok",
         "alerts_count": alerts_count,
-        "bot_username": (await bot.get_me()).username
+        "bot_username": (await bot.get_me()).username,
+        "uptime": uptime,
+        "keep_alive_active": True
     })
 
 async def create_app():
@@ -260,41 +280,54 @@ async def create_app():
     app.router.add_get('/status', status_check)
     return app
 
-# ================== BACKGROUND TASK ==================
+# ================== BACKGROUND TASKS ==================
 async def monitor_alerts():
     while True:
-        alerts = await get_alerts()
-        for alert in alerts:
-            id_, user_id, origin, destination, d1, d2, adults, threshold = alert
-            start_date, end_date = isoparse(d1).date(), isoparse(d2).date()
-            flights = await search_range(origin, destination, start_date, end_date, adults)
-            for f in flights:
-                if f.get("price", 999999) <= threshold:
-                    text = (
-                        f"🔥 Найден билет по {f.get('price')} ₽!\n"
-                        f"✈️ {f.get('origin')} → {f.get('destination')}\n"
-                        f"📅 {f.get('departure_at')}\n"
-                        f"🛫 {f.get('airline', '—')}\n"
-                        f"🔗 https://www.aviasales.ru{f.get('link', '')}"
-                    )
-                    try:
-                        await bot.send_message(user_id, text)
-                    except Exception:
-                        pass
+        try:
+            alerts = await get_alerts()
+            print(f"[{datetime.now()}] Checking {len(alerts)} alerts...")
+            
+            for alert in alerts:
+                id_, user_id, origin, destination, d1, d2, adults, threshold = alert
+                start_date, end_date = isoparse(d1).date(), isoparse(d2).date()
+                flights = await search_range(origin, destination, start_date, end_date, adults)
+                
+                for f in flights:
+                    if f.get("price", 999999) <= threshold:
+                        text = (
+                            f"🔥 Найден билет по {f.get('price')} ₽!\n"
+                            f"✈️ {f.get('origin')} → {f.get('destination')}\n"
+                            f"📅 {f.get('departure_at')}\n"
+                            f"🛫 {f.get('airline', '—')}\n"
+                            f"🔗 https://www.aviasales.ru{f.get('link', '')}"
+                        )
+                        try:
+                            await bot.send_message(user_id, text)
+                            print(f"Alert sent to user {user_id}")
+                        except Exception as e:
+                            print(f"Failed to send alert to user {user_id}: {e}")
+        except Exception as e:
+            print(f"Error in monitor_alerts: {e}")
+        
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
 # ================== MAIN ==================
 async def main():
     await init_db()
+    print(f"Starting bot with keep-alive URL: {RENDER_APP_URL}")
     
-    # Запускаем мониторинг alerts в фоне
+    # Запускаем все фоновые задачи
     asyncio.create_task(monitor_alerts())
+    asyncio.create_task(keep_alive())
     
     # Создаем и запускаем веб-сервер
     app = await create_app()
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', PORT)
+    
+    print(f"Starting web server on port {PORT}")
+    print("Starting Telegram bot...")
     
     # Запускаем сервер и бота одновременно
     await asyncio.gather(
