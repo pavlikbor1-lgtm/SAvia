@@ -1,3 +1,4 @@
+
 # main.py
 # -------------------------
 # Configuration & constants
@@ -472,7 +473,7 @@ async def handle_destination_selection(callback: CallbackQueryType, state: FSMCo
     now = datetime.now()
     await callback.message.edit_text(
         f"✅ Маршрут: <b>{origin} → {airport_code}</b>\n\n"
-        "📅 Выберите даты поездки (сначала дата вылета, затем дата возвращения):",
+        "📅 Выберите диапазон поиска дат:",
         reply_markup=get_calendar_keyboard(now.year, now.month, [])
     )
     await state.set_state(SearchFlight.date1)
