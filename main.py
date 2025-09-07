@@ -38,7 +38,7 @@ PORT = int(os.getenv("PORT", "10000"))  # Render.com использует пер
 
 # Добавляем настройки для keep-alive
 SELF_PING_INTERVAL = int(os.getenv("SELF_PING_INTERVAL", "840"))  # 14 минут
-RENDER_SERVICE_URL = "https://savia-w3zz.onrender.com"
+RENDER_SERVICE_URL =  "https://savia-w3zz.onrender.com"
 
 bot = Bot(
     token=TELEGRAM_BOT_TOKEN,
@@ -845,6 +845,9 @@ async def main():
     try:
         await init_db()
         logger.info("Database initialized")
+        
+        # Устанавливаем постоянное меню команд
+        await setup_bot_menu()
         
         # Запускаем фоновые задачи
         asyncio.create_task(monitor_alerts())
