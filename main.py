@@ -22,6 +22,11 @@ from aiogram.fsm.context import FSMContext
 
 # Добавляем aiohttp для веб-сервера
 from aiohttp import web
+import logging
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ================== CONFIG ==================
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -30,6 +35,10 @@ TP_CURRENCY = os.getenv("TP_CURRENCY", "rub")
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "900"))  # 15 мин
 RATE_LIMIT_MS = int(os.getenv("RATE_LIMIT_MS", "400"))
 PORT = int(os.getenv("PORT", "10000"))  # Render.com использует переменную PORT
+
+# Добавляем настройки для keep-alive
+SELF_PING_INTERVAL = int(os.getenv("SELF_PING_INTERVAL", "840"))  # 14 минут
+RENDER_SERVICE_URL = "https://savia-w3zz.onrender.com"
 
 bot = Bot(
     token=TELEGRAM_BOT_TOKEN,
@@ -48,10 +57,16 @@ async def fetch_flights(origin, destination, date, adults=1):
         "currency": TP_CURRENCY,
         "token": TRAVELPAYOUTS_TOKEN,
     }
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(url, params=params)
-        if resp.status_code == 200:
-            return resp.json().get("data", [])
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, params=params)
+            if resp.status_code == 200:
+                return resp.json().get("data", [])
+            else:
+                logger.warning(f"API returned status {resp.status_code}")
+                return []
+    except Exception as e:
+        logger.error(f"Error fetching flights: {e}")
         return []
 
 async def search_range(origin, destination, start_date, end_date, adults=1):
@@ -76,42 +91,82 @@ def validate_date(date_str: str) -> datetime | None:
     except Exception:
         return None
 
+# ================== KEEP-ALIVE FUNCTION ==================
+async def keep_alive():
+    """Функция для поддержания активности сервиса на Render"""
+    if not RENDER_SERVICE_URL:
+        logger.warning("RENDER_SERVICE_URL not set, self-ping disabled")
+        return
+    
+    while True:
+        try:
+            await asyncio.sleep(SELF_PING_INTERVAL)
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(f"{RENDER_SERVICE_URL}/health")
+                if response.status_code == 200:
+                    logger.info("Self-ping successful")
+                else:
+                    logger.warning(f"Self-ping failed with status {response.status_code}")
+        except Exception as e:
+            logger.error(f"Self-ping error: {e}")
+
 # ================== DB ==================
 DB_PATH = "alerts.db"
 
 async def init_db():
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS alerts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            origin TEXT,
-            destination TEXT,
-            start_date TEXT,
-            end_date TEXT,
-            adults INTEGER,
-            threshold INTEGER
-        )
-        """)
-        await db.commit()
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("""
+            CREATE TABLE IF NOT EXISTS alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                origin TEXT,
+                destination TEXT,
+                start_date TEXT,
+                end_date TEXT,
+                adults INTEGER,
+                threshold INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+            await db.commit()
+            logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Database initialization error: {e}")
 
 async def add_alert(user_id, origin, destination, start_date, end_date, adults, threshold):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO alerts (user_id, origin, destination, start_date, end_date, adults, threshold) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (user_id, origin, destination, start_date, end_date, adults, threshold),
-        )
-        await db.commit()
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "INSERT INTO alerts (user_id, origin, destination, start_date, end_date, adults, threshold) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (user_id, origin, destination, start_date, end_date, adults, threshold),
+            )
+            await db.commit()
+            logger.info(f"Alert added for user {user_id}")
+    except Exception as e:
+        logger.error(f"Error adding alert: {e}")
 
 async def get_alerts():
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT id, user_id, origin, destination, start_date, end_date, adults, threshold FROM alerts") as cur:
-            return await cur.fetchall()
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute("SELECT id, user_id, origin, destination, start_date, end_date, adults, threshold FROM alerts") as cur:
+                return await cur.fetchall()
+    except Exception as e:
+        logger.error(f"Error getting alerts: {e}")
+        return []
 
 async def delete_alert(alert_id, user_id):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM alerts WHERE id = ? AND user_id = ?", (alert_id, user_id))
-        await db.commit()
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute("DELETE FROM alerts WHERE id = ? AND user_id = ?", (alert_id, user_id))
+            await db.commit()
+            if cursor.rowcount > 0:
+                logger.info(f"Alert {alert_id} deleted for user {user_id}")
+                return True
+            return False
+    except Exception as e:
+        logger.error(f"Error deleting alert: {e}")
+        return False
 
 # ================== FSM ==================
 class SearchFlight(StatesGroup):
@@ -243,6 +298,7 @@ def get_calendar_keyboard(year, month, selected_dates=None):
 # ================== BOT HANDLERS ==================
 @dp.message(Command("start"))
 async def start_cmd(message: Message):
+    logger.info(f"Start command from user {message.from_user.id}")
     await message.answer(
         "✈️ <b>Добро пожаловать в бота поиска авиабилетов!</b>\n\n"
         "Я помогу вам:\n"
@@ -657,11 +713,36 @@ async def alerts_cmd(message: Message):
 @dp.message(Command("cancel"))
 async def cancel_cmd(message: Message):
     try:
-        _, alert_id = message.text.split()
-        await delete_alert(int(alert_id), message.from_user.id)
-        await message.answer("Оповещение удалено ✅")
+        parts = message.text.split()
+        if len(parts) != 2:
+            await message.answer("Используйте: /cancel ID_ОПОВЕЩЕНИЯ")
+            return
+            
+        alert_id = int(parts[1])
+        success = await delete_alert(alert_id, message.from_user.id)
+        
+        if success:
+            await message.answer("✅ Оповещение удалено")
+        else:
+            await message.answer("❌ Оповещение не найдено или уже удалено")
+    except ValueError:
+        await message.answer("❌ Некорректный ID оповещения")
     except Exception as e:
-        await message.answer(f"Ошибка: {e}")
+        await message.answer(f"❌ Ошибка: {e}")
+
+@dp.message(Command("status"))
+async def status_cmd(message: Message):
+    """Команда для проверки статуса бота"""
+    alerts_count = len(await get_alerts())
+    uptime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    await message.answer(
+        f"🤖 <b>Статус бота</b>\n\n"
+        f"⏰ Время: {uptime}\n"
+        f"📊 Активных оповещений: {alerts_count}\n"
+        f"🔄 Интервал проверки: {POLL_INTERVAL_SECONDS//60} мин\n"
+        f"✅ Бот работает нормально!"
+    )
 
 # ---------- ПРОСТОЙ ПОШАГОВЫЙ ПОИСК (через сообщения) ----------
 @dp.message(Command("search_simple"))
@@ -669,6 +750,13 @@ async def start_search_simple(message: Message, state: FSMContext):
     # альтернатива: если пользователь хочет использовать старый пошаговый поиск без кнопок
     await message.answer("Введите ORIG — код аэропорта вылета (например: MOW):")
     await state.set_state(SearchFlight.origin)
+
+# ================== ERROR HANDLERS ==================
+@dp.error()
+async def error_handler(event, exception):
+    """Глобальный обработчик ошибок"""
+    logger.error(f"Update {event} caused error {exception}")
+    return True
 
 # ================== WEB SERVER ==================
 async def health_check(request):
@@ -679,8 +767,11 @@ async def status_check(request):
     me = await bot.get_me()
     return web.json_response({
         "status": "ok",
+        "timestamp": datetime.now().isoformat(),
         "alerts_count": alerts_count,
-        "bot_username": me.username if me else None
+        "bot_username": me.username if me else None,
+        "poll_interval": POLL_INTERVAL_SECONDS,
+        "self_ping_interval": SELF_PING_INTERVAL
     })
 
 async def create_app():
@@ -690,56 +781,107 @@ async def create_app():
     app.router.add_get('/status', status_check)
     return app
 
-# ================== BACKGROUND TASK ==================
+# ================== BACKGROUND TASKS ==================
 async def monitor_alerts():
+    """Мониторинг оповещений о ценах"""
+    logger.info("Alert monitoring started")
+    
     while True:
-        alerts = await get_alerts()
-        for alert in alerts:
-            id_, user_id, origin, destination, d1, d2, adults, threshold = alert
-            try:
-                start_date, end_date = isoparse(d1).date(), isoparse(d2).date()
-            except Exception:
-                continue
-            # Ограничение: если период прошёл — можно удалить оповещение (необязательно)
-            if end_date < datetime.now().date():
-                # пропускаем просроченные оповещения (можно также удалять)
-                continue
-            flights = await search_range(origin, destination, start_date, end_date, adults)
-            for f in flights:
-                price = f.get("price", 999999)
-                if price <= threshold:
-                    text = (
-                        f"🔥 <b>Найдена низкая цена: {price} ₽</b>!\n"
-                        f"✈️ {f.get('origin')} → {f.get('destination')}\n"
-                        f"📅 {f.get('departure_at')}\n"
-                        f"🛫 {f.get('airline', '—')}\n"
-                        f"🔗 https://www.aviasales.ru{f.get('link', '')}"
-                    )
-                    try:
-                        await bot.send_message(user_id, text, disable_web_page_preview=True)
-                    except Exception:
-                        # пользователь мог заблокировать бота или др. ошибка
-                        pass
+        try:
+            alerts = await get_alerts()
+            logger.info(f"Checking {len(alerts)} alerts")
+            
+            for alert in alerts:
+                try:
+                    id_, user_id, origin, destination, d1, d2, adults, threshold = alert
+                    start_date, end_date = isoparse(d1).date(), isoparse(d2).date()
+                    
+                    # Ограничение: если период прошёл — можно удалить оповещение
+                    if end_date < datetime.now().date():
+                        await delete_alert(id_, user_id)
+                        logger.info(f"Deleted expired alert {id_}")
+                        continue
+                    
+                    flights = await search_range(origin, destination, start_date, end_date, adults)
+                    
+                    for f in flights:
+                        price = f.get("price", 999999)
+                        if price <= threshold:
+                            text = (
+                                f"🔥 <b>Найдена низкая цена: {price} ₽</b>!\n\n"
+                                f"✈️ {f.get('origin')} → {f.get('destination')}\n"
+                                f"📅 {f.get('departure_at')}\n"
+                                f"🛫 {f.get('airline', '—')}\n"
+                                f"🔗 <a href='https://www.aviasales.ru{f.get('link', '')}'>Купить билет</a>\n\n"
+                                f"Оповещение ID: {id_}"
+                            )
+                            try:
+                                await bot.send_message(user_id, text, disable_web_page_preview=True)
+                                logger.info(f"Alert sent to user {user_id} for price {price}")
+                            except Exception as e:
+                                logger.error(f"Failed to send alert to user {user_id}: {e}")
+                                # Можно удалить оповещение если пользователь заблокировал бота
+                                if "bot was blocked by the user" in str(e).lower():
+                                    await delete_alert(id_, user_id)
+                                    logger.info(f"Deleted alert {id_} - user blocked bot")
+                            
+                            # Отправляем только первое найденное совпадение для каждого оповещения
+                            break
+                            
+                except Exception as e:
+                    logger.error(f"Error processing alert {alert}: {e}")
+                    continue
+                    
+        except Exception as e:
+            logger.error(f"Error in monitor_alerts: {e}")
+        
+        logger.info(f"Alert check completed, sleeping for {POLL_INTERVAL_SECONDS} seconds")
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
 # ================== MAIN ==================
 async def main():
-    await init_db()
+    logger.info("Starting Telegram Bot...")
     
-    # Запускаем мониторинг alerts в фоне
-    asyncio.create_task(monitor_alerts())
-    
-    # Создаем и запускаем веб-сервер
-    app = await create_app()
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', PORT)
-    
-    # Запускаем сервер и бота одновременно
-    await asyncio.gather(
-        site.start(),
-        dp.start_polling(bot)
-    )
+    try:
+        await init_db()
+        logger.info("Database initialized")
+        
+        # Запускаем фоновые задачи
+        asyncio.create_task(monitor_alerts())
+        logger.info("Alert monitoring task started")
+        
+        # Запускаем keep-alive если URL указан
+        if RENDER_SERVICE_URL:
+            asyncio.create_task(keep_alive())
+            logger.info(f"Keep-alive task started for {RENDER_SERVICE_URL}")
+        else:
+            logger.warning("RENDER_SERVICE_URL not set, keep-alive disabled")
+        
+        # Создаем и запускаем веб-сервер
+        app = await create_app()
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, '0.0.0.0', PORT)
+        
+        logger.info(f"Starting web server on port {PORT}")
+        await site.start()
+        
+        # Получаем информацию о боте
+        me = await bot.get_me()
+        logger.info(f"Bot @{me.username} started successfully!")
+        
+        # Запускаем поллинг
+        await dp.start_polling(bot)
+        
+    except Exception as e:
+        logger.error(f"Failed to start bot: {e}")
+        raise
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+    except Exception as e:
+        logger.error(f"Critical error: {e}")
+        raise
